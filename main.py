@@ -40,30 +40,11 @@ async def websocket_camera_feed(websocket: WebSocket):
             cv2.imshow("Camera Feed", img)
             cv2.waitKey(1)  # Display the image for 1 ms
 
+            # Encode the image to base64 to send it back
+            _, buffer = cv2.imencode('.jpg', img)
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
+
     except WebSocketDisconnect:
-        print("WebSocket connection closed. Closing the preview window.")
+        print("WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
-
-@app.post("/upload_feed")
-async def upload_feed(request: Request):
-    data = await request.json()
-    image = data.get("image")
-    
-    if not image:
-        return JSONResponse(status_code=422, content={"message": "Invalid image data."})
-
-    # Extract the base64 string from the data URL
-    header, encoded = image.split(',', 1)
-    
-    # Decode the image
-    data = base64.b64decode(encoded)
-    
-    # Convert to a numpy array and decode the image
-    img_array = np.frombuffer(data, np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-    # Display the image using OpenCV
-    cv2.imshow("Camera Feed", img)
-    cv2.waitKey(1)  # Display the image for 1 ms
-
-    return {"status": "success", "message": "Image received"}
