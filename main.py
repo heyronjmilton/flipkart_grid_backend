@@ -1,25 +1,30 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
 import base64
 import cv2
 import numpy as np
 import asyncio
-import random
 import json
 import torch
 import time
+
+from collections import defaultdict,deque
 from ultralytics import YOLO
-from collections import defaultdict
 from ultralytics.utils.plotting import Annotator, colors
-from utils.image_process import resize_with_aspect_ratio
+
+from utils.image_process import save_expiry_image
 
 
 device = torch.device("cuda")
 
-object_detection_model = YOLO("model\object_detection.pt")
+object_detection_model = YOLO("model/object_detection.pt")
+expiry_detection_model = YOLO('model/expiry.pt')
 object_detection_model.info()
+expiry_detection_model.info()
 
 object_detection_model = object_detection_model.to(device)
+expiry_detection_model = expiry_detection_model.to(device)
 
 app = FastAPI()
 
@@ -49,12 +54,18 @@ max_inactive_time = 1.0
 track_history = defaultdict(lambda: {'last_seen': time.time(), 'box': None, 'confidence': 0})
 detected_objects_list = []
 
+# Parameters for expiry detection
+expiry_detection_duration = 5  # Duration to consider for expiry detection
+detected_objects = deque()
+expiry_start_time = None
+expiry_detected = False
+object_name = ""
 
-@app.websocket("/ws/camera_feed_object")
+@app.websocket("/ws/camera_feed_expiry")
 async def websocket_camera_feed_object(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connection established for object detection")
-
+    global object_name, expiry_detected, expiry_start_time, expiry_detection_duration, detected_objects
     try:
         while True:
             # Wait for the client to send an image
@@ -64,25 +75,59 @@ async def websocket_camera_feed_object(websocket: WebSocket):
             header, encoded = image_data.split(',', 1)
             # Decode the image
             data = base64.b64decode(encoded)
-    
             # Convert to a numpy array and decode the image
             img_array = np.frombuffer(data, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-            resized_frame = resize_with_aspect_ratio(img, width=640)
+            resized_frame = cv2.resize(img, (640, 640))
 
-            results_object_detection = object_detection_model(resized_frame)
-            result_object_detection = results_object_detection[0]
+            results_object_detection = object_detection_model(resized_frame, verbose = False)
 
-            image_with_boxes_object = result_object_detection.plot()
+            for box in results_object_detection[0].boxes:
+                confidence = box.conf.item()
+                if confidence > 0.65:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                    label = f"{results_object_detection[0].names[int(box.cls)]} {confidence:.2f}"
+                    cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                    # Store the object name if not already stored
+                    if object_name != results_object_detection[0].names[int(box.cls)]:
+                        object_name = results_object_detection[0].names[int(box.cls)]
+                        detected_objects.append(object_name)
+                        print(f"Detected object: {object_name}")
+            
+            if object_name:
+                results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
+
+                # Process expiry detection results
+                for box in results_expiry_detection[0].boxes:
+                    confidence = box.conf.item()
+                    if confidence > 0.65:
+                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                        cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        cv2.putText(resized_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+                        # Save the expiry image if within the detection duration
+                        if not expiry_detected:
+                            expiry_detected = True
+                            expiry_start_time = time.time()
+                            expiry_image_path = save_expiry_image(resized_frame, x1, y1, x2, y2, object_name)
+                            print(f"Expiry image saved at: {expiry_image_path}")
+
+                        # Stop expiry detection after the duration
+                        if time.time() - expiry_start_time > expiry_detection_duration:
+                            expiry_detected = False
+                            print("Expiry detection ended")
+            
 
             # Display the image using OpenCV
             cv2.imshow("Camera Feed", resized_frame)
-            cv2.imshow("Inferneced Camera Feed", image_with_boxes_object)
+            cv2.imshow("Object and expiry detection", resized_frame)
             cv2.waitKey(1)  # Display the image for 1 ms
 
             # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', image_with_boxes_object)
+            _, buffer = cv2.imencode('.jpg', resized_frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
@@ -90,14 +135,16 @@ async def websocket_camera_feed_object(websocket: WebSocket):
         print("WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
-@app.websocket("/ws/objects")
+@app.websocket("/ws/expiry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
             # Send item updates to the connected client
+            with open("data/expiry_details.json", 'r') as file:
+                data = json.load(file)
             try:
-                await websocket.send_text(json.dumps(item_objects))  # Convert items to JSON string
+                await websocket.send_text(json.dumps(data))  # Convert items to JSON string
             except Exception as e:
                 print(f"Error sending message: {e}")
                 break  # Break the loop if there is an error in sending
@@ -128,7 +175,7 @@ async def websocket_camera_feed_fruit(websocket: WebSocket):
             img_array = np.frombuffer(data, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-            resized_frame = resize_with_aspect_ratio(img, width=640)
+            resized_frame = cv2.resize(img, (640, 640))
 
             results_object_detection = object_detection_model(resized_frame)
             result_object_detection = results_object_detection[0]
