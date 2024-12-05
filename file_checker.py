@@ -4,6 +4,30 @@ import json
 import cv2
 from utils.gemini_image import process_image
 
+
+def delete_all_files_in_folder(folder_path):
+    try:
+        # Check if the folder exists
+        if os.path.exists("last_modified.json") :
+            os.remove("last_modified.json")
+        if not os.path.exists(folder_path):
+            print(f"The folder '{folder_path}' does not exist.")
+            return
+        
+        # Iterate through the files in the folder
+        for file_name in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, file_name)
+            
+            # Check if it is a file (not a folder)
+            if os.path.isfile(file_path):
+                os.remove(file_path)  # Delete the file
+                print(f"Deleted: {file_path}")
+        
+        print("All files in the folder have been deleted.")
+    
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
 # Function to get modified files and their last modified times
 def get_modified_files(folder_path):
     modified_files = {}
@@ -42,6 +66,7 @@ def load_last_modified_times(file_path):
 
 def main():
     folder_path = 'details'  # Change this to your target folder
+    delete_all_files_in_folder(folder_path)
     last_modified_file = 'last_modified.json'
 
     # Load the last modified times

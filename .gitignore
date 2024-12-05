@@ -4,3 +4,9 @@ last_day.py
 object-tracking.avi
 .env
 final.py
+model
+test.py
+last_modified.json
+model\best.pt
+model\expiry.pt
+model\model.rar

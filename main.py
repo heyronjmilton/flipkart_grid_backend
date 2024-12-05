@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import base64
@@ -8,6 +8,9 @@ import asyncio
 import json
 import torch
 import time
+import os
+import subprocess
+import threading
 
 from collections import defaultdict,deque
 from ultralytics import YOLO
@@ -25,6 +28,9 @@ expiry_detection_model.info()
 
 object_detection_model = object_detection_model.to(device)
 expiry_detection_model = expiry_detection_model.to(device)
+
+process = None          #for the working of the file checker
+process_lock = threading.Lock()
 
 app = FastAPI()
 
@@ -138,22 +144,32 @@ async def websocket_camera_feed_object(websocket: WebSocket):
 @app.websocket("/ws/expiry")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    if os.path.exists("data/expiry_details.json") :
+        with open("data/expiry_details.json", 'w') as file:
+                    data = []
+                    json.dump(data, file, indent=4)
     try:
         while True:
+            if os.path.exists("data/expiry_details.json"):
             # Send item updates to the connected client
-            with open("data/expiry_details.json", 'r') as file:
-                data = json.load(file)
-            try:
-                await websocket.send_text(json.dumps(data))  # Convert items to JSON string
-            except Exception as e:
-                print(f"Error sending message: {e}")
-                break  # Break the loop if there is an error in sending
+                with open("data/expiry_details.json", 'r') as file:
+                    data = json.load(file)
+                try:
+                    await websocket.send_text(json.dumps(data))  # Convert items to JSON string
+                except Exception as e:
+                    print(f"Error sending message: {e}")
+                    break  # Break the loop if there is an error in sending
+                
+                await asyncio.sleep(1)  # Wait for 5 seconds before sending again
+            else :
+                 with open("data/expiry_details.json", 'w') as file:
+                    data = []
+                    json.dump(data, file, indent=4)
             
-            await asyncio.sleep(1)  # Wait for 5 seconds before sending again
     except Exception as e:
         print(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()
+    # finally:
+    #     await websocket.close()
 
 
 @app.websocket("/ws/camera_feed_fruit")
@@ -335,6 +351,31 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"WebSocket error: {e}")
     finally:
         await websocket.close()
+
+
+@app.get("/start-file-checker")
+async def file_checker():
+    global process
+    with process_lock:
+        # If a process is already running, kill it
+        if process is not None and process.poll() is None:
+            process.kill()
+            process = None  # Clear the process reference
+        
+        # Start a new subprocess
+        process = subprocess.Popen(['venv\Scripts\python.exe', 'file_checker.py'])
+        return {"message": "Process restarted successfully", "pid": process.pid}
+
+@app.get("/stop-file-checker")
+async def stop_process():
+    global process
+    with process_lock:
+        if process is None or process.poll() is not None:
+            raise HTTPException(status_code=400, detail="No process is running.")
+        
+        # Force kill the subprocess
+        process.kill()
+        return {"message": "Process forcefully killed"}
 
 
 @app.get("/")
