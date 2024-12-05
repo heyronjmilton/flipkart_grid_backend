@@ -134,9 +134,9 @@ def process_image(roi_image,name):
         print(result_text)
         print("name : ", name)
         full_data=result_text
-        expiry_date=full_data.split("Expiry date")[1].split("end")[0]
-        manufacture_date=full_data.split("Manufacture date")[1].split("end")[0]
-        batch=full_data.split("Batch number")[1].split("end")[0]
+        expiry_date=full_data.split("Expiry date")[1].split("end")[0].strp(":").strip()
+        manufacture_date=full_data.split("Manufacture date")[1].split("end")[0].strp(":").strip()
+        batch=full_data.split("Batch number")[1].split("end")[0].strp(":").strip()
         append_to_json_file(expiry_date,manufacture_date,batch,name)
         return expiry_date,manufacture_date,batch
 
