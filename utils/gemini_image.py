@@ -132,11 +132,12 @@ def process_image(roi_image,name):
     else:
         print("Result:")
         print(result_text)
-        print("name : ", name)
+        print("parsed output from the AI")
         full_data=result_text
-        expiry_date=full_data.split("Expiry date")[1].split("end")[0].strp(":").strip()
-        manufacture_date=full_data.split("Manufacture date")[1].split("end")[0].strp(":").strip()
-        batch=full_data.split("Batch number")[1].split("end")[0].strp(":").strip()
+        expiry_date=full_data.split("Expiry date")[1].split("end")[0].strip(":").strip()
+        manufacture_date=full_data.split("Manufacture date")[1].split("end")[0].strip(":").strip()
+        batch=full_data.split("Batch number")[1].split("end")[0].strip(":").strip()
+        print(f"MFG : {manufacture_date}  EXP : {expiry_date}  Batch : {batch}  name : {name}")
         append_to_json_file(expiry_date,manufacture_date,batch,name)
         return expiry_date,manufacture_date,batch
 
