@@ -48,12 +48,6 @@ app.add_middleware(
 )
 
 
-
-item_fruits = [
-     {"name": "Apple", "type": "fruit", "quality": "Good"},
-    {"name": "Banana", "type": "fruit", "quality": "Ripe"},
-]
-
 # these are for counting functionality
 out = cv2.VideoWriter("object-tracking.avi", cv2.VideoWriter_fourcc(*"MJPG"), 30, (640, 640))
 max_inactive_time = 1.0
