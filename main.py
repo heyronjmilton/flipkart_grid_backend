@@ -69,7 +69,7 @@ expiry_detected = False
 object_name = ""
 
 @app.websocket("/ws/camera_feed_expiry")
-async def websocket_camera_feed_object(websocket: WebSocket):
+async def websocket_camera_feed_packed_products(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connection established for object detection")
     global object_name, expiry_detected, expiry_start_time, expiry_detection_duration, detected_objects
@@ -142,8 +142,8 @@ async def websocket_camera_feed_object(websocket: WebSocket):
         print("WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
-@app.websocket("/ws/expiry")
-async def websocket_endpoint(websocket: WebSocket):
+@app.websocket("/ws/packed_products_expiry")
+async def packed_products_expiry(websocket: WebSocket):
     await websocket.accept()
     if os.path.exists("data/expiry_details.json") :
         with open("data/expiry_details.json", 'w') as file:
