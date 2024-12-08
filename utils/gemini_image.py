@@ -4,6 +4,7 @@ import os
 import tempfile
 from dotenv import load_dotenv
 import json
+import requests
 
 load_dotenv()
 
@@ -75,8 +76,12 @@ def append_to_json_file(expiry, mfg, batch_no, object_name):
                 entry['object_name'] = object_name
             break
     else:
-        
-        data.append(new_entry)
+        res = requests.get("http://localhost:8000/get-sensor-data")
+        in_sensor = res.json()['in_sensor']
+        if in_sensor :
+            data.append(new_entry)
+        else :
+            print("product info attempted to update after the process")
 
     # Write back to the file
     with open("data/expiry_details.json", 'w') as file:
