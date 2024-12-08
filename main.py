@@ -11,7 +11,7 @@ from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 
 from utils.image_process import save_expiry_image
-from utils.handlelist import make_object_final
+from utils.handlelist import make_object_final, clear_list
 
 device = torch.device("cuda")
 
@@ -29,6 +29,16 @@ fruit_detection_model = fruit_detection_model.to(device)
 
 process = None          #for the working of the file checker
 process_lock = threading.Lock()
+
+with process_lock:
+        # If a process is already running, kill it
+        if process is not None and process.poll() is None:
+            process.kill()
+            process = None  # Clear the process reference
+        
+        # Start a new subprocess
+        process = subprocess.Popen(['venv\Scripts\python.exe', 'file_checker.py'])
+        print({"message": "Process restarted successfully", "pid": process.pid})
 
 buffer_list = []
 name_detection = True
@@ -145,26 +155,11 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
         print("WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
-@app.post("/set-in-sensor")
-async def setNameDetection(value : int):
-    global in_sensor, buffer_list, name_detection, product_name
-    if(int(value) == 1) :
-        in_sensor = True
-    elif(int(value) == 0) :
-        in_sensor = False
-    
-    return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
-
-
 
 @app.websocket("/ws/packed_products_expiry")
 async def packed_products_expiry(websocket: WebSocket):
     global product_name, name_detection
     await websocket.accept()
-    if os.path.exists("data/expiry_details.json") :
-        with open("data/expiry_details.json", 'w') as file:
-                    data = []
-                    json.dump(data, file, indent=4)
     try:
         while True:
             if os.path.exists("data/expiry_details.json"):
@@ -174,6 +169,7 @@ async def packed_products_expiry(websocket: WebSocket):
                 try:
                     data_to_send = {
                         "details" : data,
+                        "count" : len(data),
                         "product_name" : product_name,
                         "name_detection" : name_detection
                     }
@@ -437,6 +433,24 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close()
 
 
+
+@app.post("/set-in-sensor")
+async def setNameDetection(value : int):
+    global in_sensor, buffer_list, name_detection, product_name
+    if(int(value) == 1) :
+        in_sensor = True
+        product_name = None
+        buffer_list = []
+        name_detection = True
+        
+    elif(int(value) == 0) :
+        in_sensor = False
+        name_detection = True
+        buffer_list = []
+    
+    return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
+
+
 @app.get("/start-file-checker")
 async def file_checker():
     global process
@@ -461,6 +475,14 @@ async def stop_process():
         process.kill()
         return {"message": "Process forcefully killed"}
 
+@app.get("/finish-task")
+async def finsihTask():
+
+    global in_sensor
+
+    clear_list("expiry_details.json")
+    in_sensor = False
+    return {"msg" : "expiry details cleared"}
 
 @app.get("/")
 def home():
