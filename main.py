@@ -157,7 +157,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
     except WebSocketDisconnect:
-        print("WebSocket connection closed.")
+        print("Packed Items WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
 
@@ -190,7 +190,7 @@ async def packed_products_expiry(websocket: WebSocket):
                     json.dump(data, file, indent=4)
             
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        print(f"Packed Item WebSocket error: {e}")
     # finally:
     #     await websocket.close()
 
@@ -396,6 +396,15 @@ async def finsihTask():
     clear_list("expiry_details.json")
     in_sensor = False
     return {"msg" : "expiry details cleared"}
+
+@app.get("/get-sensor-data")
+def getSensorData():
+    global in_sensor, out_sensor
+    data = {
+        "in_sensor" : in_sensor,
+        "out_sensor" : out_sensor
+    }
+    return data
 
 @app.get("/")
 def home():
