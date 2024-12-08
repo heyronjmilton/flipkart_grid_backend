@@ -41,11 +41,12 @@ with process_lock:
         print({"message": "Process restarted successfully", "pid": process.pid})
 
 buffer_list = []
-name_detection = True
+name_detection = False
 product_name = None
-in_sensor = True
+in_sensor = False
 out_sensor = False
 product_dict = {}
+clear_list("expiry_details.json")
 
 app = FastAPI()
 
