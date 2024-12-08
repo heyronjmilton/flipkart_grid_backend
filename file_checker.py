@@ -11,7 +11,7 @@ def delete_all_files_in_folder(folder_path):
         if os.path.exists("last_modified.json") :
             os.remove("last_modified.json")
         if not os.path.exists(folder_path):
-            print(f"The folder '{folder_path}' does not exist.")
+            os.makedirs(folder_path, exist_ok=True)
             return
         
         # Iterate through the files in the folder

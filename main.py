@@ -52,7 +52,12 @@ with process_lock:
             process = None  # Clear the process reference
         
         # Start a new subprocess
-        process = subprocess.Popen(['venv\Scripts\python.exe', 'file_checker.py'])
+        if os.name == 'nt':  # For Windows
+            process = subprocess.Popen(['venv\\Scripts\\python.exe', 'file_checker.py'])
+        else:  # For Linux/macOS
+            process = subprocess.Popen(['venv/bin/python', 'file_checker.py'])
+        print(f"Started subprocess with PID: {process.pid}")
+
         print({"message": "Process restarted successfully", "pid": process.pid})
 
 buffer_list = []
@@ -374,7 +379,11 @@ async def file_checker():
             process = None  # Clear the process reference
         
         # Start a new subprocess
-        process = subprocess.Popen(['venv\Scripts\python.exe', 'file_checker.py'])
+        if os.name == 'nt':  # For Windows
+            process = subprocess.Popen(['venv\\Scripts\\python.exe', 'file_checker.py'])
+        else:  # For Linux/macOS
+            process = subprocess.Popen(['venv/bin/python', 'file_checker.py'])
+        print(f"Started subprocess with PID: {process.pid}")
         return {"message": "Process restarted successfully", "pid": process.pid}
 
 @app.get("/stop-file-checker")
