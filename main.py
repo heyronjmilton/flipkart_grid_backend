@@ -27,6 +27,21 @@ object_detection_model = object_detection_model.to(device)
 expiry_detection_model = expiry_detection_model.to(device)
 fruit_detection_model = fruit_detection_model.to(device)
 
+
+app = FastAPI()
+
+# Allow CORS for your frontend application (if needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+
+
 process = None          #for the working of the file checker
 process_lock = threading.Lock()
 
@@ -46,19 +61,8 @@ product_name = None
 in_sensor = False
 out_sensor = False
 product_dict = {}
+
 clear_list("expiry_details.json")
-
-app = FastAPI()
-
-# Allow CORS for your frontend application (if needed)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # these are for counting functionality
 out = cv2.VideoWriter("object-tracking.avi", cv2.VideoWriter_fourcc(*"MJPG"), 30, (640, 640))
@@ -112,7 +116,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                             buffer_list.append(name)
                             cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                             cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                            if(len(buffer_list) == 50) :
+                            if(len(buffer_list) == 25) :
                                 print("buffer list full")
                                 product_name = Most_Common(buffer_list)
                                 print(f"PRODUCT NAME : {product_name}")
@@ -311,111 +315,7 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         await websocket.close()
 
-@app.websocket("/ws/camera_feed_count")
-async def websocket_camera_feed_count(websocket: WebSocket):
-    await websocket.accept()
-    print("WebSocket connection established for count detection")
 
-    try:
-        while True:
-            # Wait for the client to send an image
-            image_data = await websocket.receive_text()
-
-            # Extract the base64 string from the data URL
-            header, encoded = image_data.split(',', 1)
-            # Decode the image
-            data = base64.b64decode(encoded)
-    
-            # Convert to a numpy array and decode the image
-            img_array = np.frombuffer(data, np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-            resized_frame = cv2.resize(img, (640, 640))
-
-            results = object_detection_model.track(resized_frame, verbose=False, persist=True)
-            current_time = time.time()
-            annotator = Annotator(resized_frame, line_width=2)
-            
-            global detected_objects_list
-            detected_objects  = []
-            detected_objects_list = []
-            if results and results[0].boxes:  # Ensure there are boxes detected
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                confidences = results[0].boxes.conf.cpu().numpy()
-                classes = results[0].boxes.cls.int().cpu().tolist()
-                track_ids = results[0].boxes.id.int().cpu().tolist() if results[0].boxes.id is not None else [None] * len(boxes)
-
-                # Update track history with current frame data
-                for box, track_id, confidence, cls in zip(boxes, track_ids, confidences, classes):
-                    if confidence > 0.65:
-                        x1, y1, x2, y2 = map(int, box)
-                        obj_name = object_detection_model.names[cls]
-
-                        # Store the box and confidence for smoothing
-                        track_history[track_id]['last_seen'] = current_time
-                        track_history[track_id]['box'] = (x1, y1, x2, y2)
-                        track_history[track_id]['confidence'] = confidence
-                        track_history[track_id]['name'] = obj_name
-            else:
-                print("No boxes detected in this frame.")
-
-            # Draw boxes from history to prevent flicker
-            for track_id, data in track_history.items():
-                # If the object has been inactive for too long, skip it
-                if current_time - data['last_seen'] > max_inactive_time:
-                    continue
-                
-                # Use the last known position to draw the box
-                if data['box'] is not None:  # Check if the box exists
-                    x1, y1, x2, y2 = data['box']
-                    label = f"{data['name']} (ID: {track_id}) {data['confidence']:.2f}"
-                    
-                    # Ensure track_id is not None before passing to colors
-                    if track_id is not None:
-                        color = colors(track_id, True)
-                    else:
-                        color = (255, 0, 0)  # Default color if track_id is None
-                    
-                    annotator.box_label((x1, y1, x2, y2), label, color=color)
-                    detected_objects.append((data['name'], track_id, data['confidence']))
-
-            # Get the annotated frame for display
-            annotated_frame = annotator.result()
-
-            # Write the annotated frame to the output video
-            out.write(annotated_frame)
-
-
-            if detected_objects:
-                print("Detected objects in this frame:")
-                for obj_name, track_id, confidence in detected_objects:
-                    print(f"Object: {obj_name}, Track ID: {track_id}, Confidence: {confidence:.2f}")
-                    detected_objects_list.append({
-                        "object": obj_name,
-                        "track_id": track_id,
-                        "confidence": round(float(confidence),2)  # rounding to 2 decimal places
-                    })
-            else:
-                print("No objects detected with confidence > 0.65 in this frame.")
-
-
-            # Display the image using OpenCV
-            cv2.imshow("Camera Feed", resized_frame)
-            cv2.imshow("Tracking Camera Feed", annotated_frame)
-            cv2.waitKey(1)  # Display the image for 1 ms
-
-            # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', annotated_frame)
-            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-            await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
-
-    except WebSocketDisconnect:
-        print("WebSocket connection closed.")
-        cv2.destroyAllWindows()  # Close the preview window when the connection is closed
-
-
-@app.websocket("/ws/count")
-async def websocket_endpoint(websocket: WebSocket):
     global detected_objects_list
     await websocket.accept()
     try:
@@ -434,20 +334,32 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close()
 
 
+@app.get("/reset-detection")
+def resetDetection():
+    global buffer_list, name_detection, product_name
+
+    buffer_list = []
+    name_detection = True
+    product_name = None
+
+    return {"msg" : "detected objected resetted"}
+
 
 @app.post("/set-in-sensor")
 async def setNameDetection(value : int):
     global in_sensor, buffer_list, name_detection, product_name
     if(int(value) == 1) :
-        in_sensor = True
-        product_name = None
-        buffer_list = []
-        name_detection = True
+        if in_sensor == False :
+            in_sensor = True
+            product_name = None
+            buffer_list = []
+            name_detection = True
         
     elif(int(value) == 0) :
-        in_sensor = False
-        name_detection = True
-        buffer_list = []
+        if in_sensor == True :
+            in_sensor = False
+            name_detection = True
+            buffer_list = []
     
     return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
 
