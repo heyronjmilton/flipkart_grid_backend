@@ -1,5 +1,6 @@
 import time, os, json
 
+
 def make_object_final(object_name,file_name) : #expiry_details.json(packed products)
     if os.path.exists(f"data/{file_name}"):
         # Read the existing data
@@ -18,3 +19,10 @@ def make_object_final(object_name,file_name) : #expiry_details.json(packed produ
 
     with open(f"data/{file_name}", 'w') as file:
         json.dump(data, file, indent=4)
+
+
+def clear_list(file_name):
+    if os.path.exists(f"data/{file_name}") :
+        with open(f"data/{file_name}", 'w') as file:
+                    data = []
+                    json.dump(data, file, indent=4)

@@ -75,7 +75,7 @@ def append_to_json_file(expiry, mfg, batch_no, object_name):
                 entry['object_name'] = object_name
             break
     else:
-        # No duplicate found, append the new entry
+        
         data.append(new_entry)
 
     # Write back to the file
