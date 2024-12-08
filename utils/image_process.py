@@ -1,6 +1,5 @@
 import cv2
 import os
-from utils.gemini_image import process_image
 import json
 
 def append_to_json_file(expiry, mfg, batch_no,object_name):
