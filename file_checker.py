@@ -47,11 +47,19 @@ def save_last_modified_times(file_path, last_modified):
 
 def display_image(image_path):
     try:
+        # Read the image using OpenCV
         img = cv2.imread(image_path)
         
-        _ , name = image_path.split("\\")
-        obj_name, _ = name.split(".")
-        process_image(img,obj_name)
+        if img is None:
+            raise ValueError("Image not found or unable to open.")
+        
+        # Extract the filename without the directory
+        name = os.path.basename(image_path)
+        # Extract the object name by splitting the filename
+        obj_name, _ = os.path.splitext(name)
+        
+        # Process the image
+        process_image(img, obj_name)
         print(f"Displayed image: {image_path}")
         
     except Exception as e:
