@@ -85,7 +85,6 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             resized_frame = cv2.resize(img, (640, 640))
 
-            # print(f"NAME_DETECTION : {name_detection}")
             if(in_sensor):
 
                 if(name_detection) :
@@ -110,13 +109,10 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                         else :
                             label = f"NONE {confidence:.2f}"
                             print(f"NULL NAME : {label}")
-
-                        # Store the object name if not already stored
                         
                 else :
             
                     results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
-
                     # Process expiry detection results
                     for box in results_expiry_detection[0].boxes:
                         confidence = box.conf.item()
@@ -136,7 +132,6 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                 print("not in active state")
 
 
-            # Display the image using OpenCV
             # cv2.imshow("Camera Feed", resized_frame)
             # cv2.imshow("Object and expiry detection", resized_frame)
             # cv2.waitKey(1)  # Display the image for 1 ms
