@@ -4,20 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import base64
 import cv2
 import numpy as np
-import asyncio
-import json
-import torch
-import time
-import os
-import subprocess
-import threading
+import asyncio, json, torch, time, os, subprocess, threading
+from collections import defaultdict, deque, Counter
 
-from collections import defaultdict,deque
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 
 from utils.image_process import save_expiry_image
-
+from utils.handlelist import make_object_final
 
 device = torch.device("cuda")
 
@@ -35,6 +29,13 @@ fruit_detection_model = fruit_detection_model.to(device)
 
 process = None          #for the working of the file checker
 process_lock = threading.Lock()
+
+buffer_list = []
+name_detection = True
+product_name = None
+in_sensor = True
+out_sensor = False
+product_dict = {}
 
 app = FastAPI()
 
@@ -62,70 +63,83 @@ expiry_start_time = None
 expiry_detected = False
 object_name = ""
 
+def Most_Common(lst):
+    data = Counter(lst)
+    return data.most_common(1)[0][0]
+
 @app.websocket("/ws/camera_feed_expiry")
 async def websocket_camera_feed_packed_products(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connection established for object detection")
-    global object_name, expiry_detected, expiry_start_time, expiry_detection_duration, detected_objects
+
+    global in_sensor, buffer_list, product_name, name_detection
+
     try:
         while True:
             # Wait for the client to send an image
             image_data = await websocket.receive_text()
-
-            # Extract the base64 string from the data URL
             header, encoded = image_data.split(',', 1)
-            # Decode the image
             data = base64.b64decode(encoded)
-            # Convert to a numpy array and decode the image
+            
             img_array = np.frombuffer(data, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
             resized_frame = cv2.resize(img, (640, 640))
 
-            results_object_detection = object_detection_model(resized_frame, verbose = False)
+            # print(f"NAME_DETECTION : {name_detection}")
+            if(in_sensor):
 
-            for box in results_object_detection[0].boxes:
-                confidence = box.conf.item()
-                if confidence > 0.65:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    label = f"{results_object_detection[0].names[int(box.cls)]} {confidence:.2f}"
-                    cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                if(name_detection) :
 
-                    # Store the object name if not already stored
-                    if object_name != results_object_detection[0].names[int(box.cls)]:
-                        object_name = results_object_detection[0].names[int(box.cls)]
-                        detected_objects.append(object_name)
-                        print(f"Detected object: {object_name}")
+                    results_object_detection = object_detection_model(resized_frame, verbose = False)
+
+                    for box in results_object_detection[0].boxes:
+                        confidence = box.conf.item()
+                        if confidence > 0.65:
+                            name = results_object_detection[0].names[int(box.cls)]
+                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                            label = f"{name} {confidence:.2f}"
+                            print(f"NAME : {name}")
+                            buffer_list.append(name)
+                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                            if(len(buffer_list) == 50) :
+                                print("buffer list full")
+                                product_name = Most_Common(buffer_list)
+                                print(f"PRODUCT NAME : {product_name}")
+                                name_detection = False
+                        else :
+                            label = f"NONE {confidence:.2f}"
+                            print(f"NULL NAME : {label}")
+
+                        # Store the object name if not already stored
+                        
+                else :
             
-            if object_name:
-                results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
+                    results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
 
-                # Process expiry detection results
-                for box in results_expiry_detection[0].boxes:
-                    confidence = box.conf.item()
-                    if confidence > 0.65:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                        cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                        cv2.putText(resized_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                    # Process expiry detection results
+                    for box in results_expiry_detection[0].boxes:
+                        confidence = box.conf.item()
+                        if confidence > 0.70:
+                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                            save_expiry_image(resized_frame,x1,y1,x2,y2,product_name)
+                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                            cv2.putText(resized_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-                        # Save the expiry image if within the detection duration
-                        if not expiry_detected:
-                            expiry_detected = True
-                            expiry_start_time = time.time()
-                            expiry_image_path = save_expiry_image(resized_frame, x1, y1, x2, y2, object_name)
-                            print(f"Expiry image saved at: {expiry_image_path}")
 
-                        # Stop expiry detection after the duration
-                        if time.time() - expiry_start_time > expiry_detection_duration:
-                            expiry_detected = False
-                            print("Expiry detection ended")
-            
+            if(not in_sensor) :
+                buffer_list = []
+                if product_name != None :
+                    make_object_final(product_name,"expiry_details.json")
+                product_name = None
+                name_detection = True
+                print("not in active state")
+
 
             # Display the image using OpenCV
-            cv2.imshow("Camera Feed", resized_frame)
-            cv2.imshow("Object and expiry detection", resized_frame)
-            cv2.waitKey(1)  # Display the image for 1 ms
+            # cv2.imshow("Camera Feed", resized_frame)
+            # cv2.imshow("Object and expiry detection", resized_frame)
+            # cv2.waitKey(1)  # Display the image for 1 ms
 
             # Encode the image to base64 to send it back
             _, buffer = cv2.imencode('.jpg', resized_frame)
@@ -136,8 +150,21 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
         print("WebSocket connection closed.")
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
+@app.post("/set-in-sensor")
+async def setNameDetection(value : int):
+    global in_sensor, buffer_list, name_detection, product_name
+    if(int(value) == 1) :
+        in_sensor = True
+    elif(int(value) == 0) :
+        in_sensor = False
+    
+    return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
+
+
+
 @app.websocket("/ws/packed_products_expiry")
 async def packed_products_expiry(websocket: WebSocket):
+    global product_name, name_detection
     await websocket.accept()
     if os.path.exists("data/expiry_details.json") :
         with open("data/expiry_details.json", 'w') as file:
@@ -150,7 +177,12 @@ async def packed_products_expiry(websocket: WebSocket):
                 with open("data/expiry_details.json", 'r') as file:
                     data = json.load(file)
                 try:
-                    await websocket.send_text(json.dumps(data))  # Convert items to JSON string
+                    data_to_send = {
+                        "details" : data,
+                        "product_name" : product_name,
+                        "name_detection" : name_detection
+                    }
+                    await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
                 except Exception as e:
                     print(f"Error sending message: {e}")
                     break  # Break the loop if there is an error in sending
