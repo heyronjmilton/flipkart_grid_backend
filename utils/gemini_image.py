@@ -56,10 +56,10 @@ def append_to_json_file(expiry, mfg, batch_no, object_name):
 
     # Create a new entry
     new_entry = {
+        'object_name': object_name,
         'expiry': expiry,
         'mfg': mfg,
-        'batch_no': batch_no,
-        'object_name': object_name
+        'batch_no': batch_no
     }
 
     # Check for duplicates based on 'object_name'
