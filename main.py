@@ -336,26 +336,9 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(1)  
     except Exception as e:
         print(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()
+    # finally:
+    #     await websocket.close()
 
-
-    global detected_objects_list
-    await websocket.accept()
-    try:
-        while True:
-            # Send item updates to the connected client
-            try:
-                await websocket.send_text(json.dumps(detected_objects_list))  # Convert items to JSON string
-            except Exception as e:
-                print(f"Error sending message: {e}")
-                break  # Break the loop if there is an error in sending
-            
-            await asyncio.sleep(1)  
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()
 
 
 @app.get("/reset-detection")
