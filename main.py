@@ -350,7 +350,7 @@ def resetDetection():
     return {"msg" : "detected objected resetted"}
 
 
-@app.post("/set-in-sensor")
+@app.get("/set-in-sensor")
 async def setNameDetection(value : int):
     global in_sensor, buffer_list, name_detection, product_name
     if(int(value) == 1) :
