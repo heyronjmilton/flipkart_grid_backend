@@ -407,9 +407,9 @@ async def finsihTask(batch_name:str, tasktype:str):
 
     if(tasktype == "packed") :
         print("PROCESSING ITEM DETECTION REPORT")
-        with open(f"data/{tasktype}_details.json", 'r') as file:
+        with open(f"data/expiry_details.json", 'r') as file:
             data = json.load(file)
-        save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_{tasktype}_details.xlsx")
+        save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_expiry_details.xlsx")
         clear_list("expiry_details.json")
         print("PROCESSING COMPLETE")
     elif(tasktype == "fruit") :
