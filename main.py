@@ -405,7 +405,7 @@ async def finsihTask(batch_name:str, tasktype:str):
     global in_sensor
     reports_folder = "reports"
 
-    if(tasktype == "expiry") :
+    if(tasktype == "packed") :
         print("PROCESSING ITEM DETECTION REPORT")
         with open(f"data/{tasktype}_details.json", 'r') as file:
             data = json.load(file)
