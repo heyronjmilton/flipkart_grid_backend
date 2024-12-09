@@ -57,8 +57,8 @@ def append_to_json_file(expiry, mfg, batch_no, object_name):
     # Create a new entry
     new_entry = {
         'object_name': object_name,
-        'expiry': expiry,
         'mfg': mfg,
+        'expiry': expiry,
         'batch_no': batch_no
     }
 
