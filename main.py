@@ -41,14 +41,13 @@ app.add_middleware(
 )
 
 
-obj_conf = 0.5
+obj_conf = 0.5 #model confidence variables
 expiry_conf = 0.5
 fruit_conf = 0.5
 
 
 process = None          #for the working of the file checker
 process_lock = threading.Lock()
-
 with process_lock:
         # If a process is already running, kill it
         if process is not None and process.poll() is None:
@@ -64,7 +63,7 @@ with process_lock:
 
         print({"message": "Process restarted successfully", "pid": process.pid})
 
-buffer_list = []
+buffer_list = []   #product detection and expiry detection variables
 name_detection = False
 product_name = None
 in_sensor = False
@@ -82,12 +81,7 @@ track_history = defaultdict(lambda: {'last_seen': time.time(), 'box': None, 'con
 detected_objects_list = []
 detected_fruits_list = []
 
-# Parameters for expiry detection
-expiry_detection_duration = 5  # Duration to consider for expiry detection
-detected_objects = deque()
-expiry_start_time = None
-expiry_detected = False
-object_name = ""
+
 
 def Most_Common(lst):
     data = Counter(lst)
@@ -121,7 +115,6 @@ async def process_object_detection(latest_frame):
             print(f"NULL NAME : {label}")
     return updated_frame
 
-# Offload expiry detection to a background task
 async def process_expiry_detection(resized_frame):
     global buffer_list, name_detection, product_name
     updated_frame = resized_frame.copy()
