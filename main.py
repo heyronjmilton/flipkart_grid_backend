@@ -12,6 +12,7 @@ from ultralytics.utils.plotting import Annotator, colors
 
 from utils.image_process import save_expiry_image
 from utils.handlelist import make_object_final, clear_list
+from utils.handlereports import save_expiry_details_to_excel
 
 device = torch.device("cuda")
 
@@ -67,6 +68,8 @@ in_sensor = False
 out_sensor = False
 product_dict = {}
 
+frame_queue = deque(maxlen=1)
+
 clear_list("expiry_details.json")
 
 # these are for counting functionality
@@ -105,11 +108,15 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             resized_frame = cv2.resize(img, (640, 640))
 
+            frame_queue.clear()
+            frame_queue.append(resized_frame)
+            latest_frame = frame_queue[0]
+
             if(in_sensor):
 
                 if(name_detection) :
 
-                    results_object_detection = object_detection_model(resized_frame, verbose = False)
+                    results_object_detection = object_detection_model(latest_frame, verbose = False)
 
                     for box in results_object_detection[0].boxes:
                         confidence = box.conf.item()
@@ -151,7 +158,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                 name_detection = True
                 print("not in active state")
 
-
+            
             # cv2.imshow("Camera Feed", resized_frame)
             # cv2.imshow("Object and expiry detection", resized_frame)
             # cv2.waitKey(1)  # Display the image for 1 ms
@@ -397,14 +404,28 @@ async def stop_process():
         process.kill()
         return {"message": "Process forcefully killed"}
 
-@app.get("/finish-task")
-async def finsihTask():
+@app.post("/finish-task")
+async def finsihTask(batch_name:str, tasktype:str):
 
     global in_sensor
+    reports_folder = "reports"
 
-    clear_list("expiry_details.json")
+    if(tasktype == "expiry") :
+        print("PROCESSING ITEM DETECTION REPORT")
+        with open(f"data/{tasktype}_details.json", 'r') as file:
+            data = json.load(file)
+        save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_{tasktype}_details.xlsx")
+        clear_list("expiry_details.json")
+        print("PROCESSING COMPLETE")
+    elif(tasktype == "fruit") :
+        print("PROCESSING FRUIT DETECTION REPORT")
+
+    else:
+        print(f"ERROR TASK TYPE : {tasktype}")
+        return {"msg" : "invalid task details"}
+
     in_sensor = False
-    return {"msg" : "expiry details cleared"}
+    return {"msg" : f"{tasktype} details saved"}
 
 @app.get("/get-sensor-data")
 def getSensorData():
