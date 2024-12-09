@@ -41,6 +41,9 @@ app.add_middleware(
 )
 
 
+obj_conf = 0.5
+expiry_conf = 0.5
+fruit_conf = 0.5
 
 
 process = None          #for the working of the file checker
@@ -92,7 +95,45 @@ def Most_Common(lst):
 
 
 
+async def process_object_detection(latest_frame):
+    global buffer_list, name_detection, product_name
+    updated_frame = latest_frame.copy()
+    
+    results_object_detection = object_detection_model(updated_frame, verbose=False)
 
+    for box in results_object_detection[0].boxes:
+        confidence = box.conf.item()
+        if confidence > obj_conf:
+            name = results_object_detection[0].names[int(box.cls)]
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            label = f"{name} {confidence:.2f}"
+            print(f"NAME : {name}")
+            buffer_list.append(name)
+            cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(updated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            if len(buffer_list) == 25:
+                print("buffer list full")
+                product_name = Most_Common(buffer_list)
+                print(f"PRODUCT NAME : {product_name}")
+                name_detection = False
+        else:
+            label = f"NONE {confidence:.2f}"
+            print(f"NULL NAME : {label}")
+    return updated_frame
+
+# Offload expiry detection to a background task
+async def process_expiry_detection(resized_frame):
+    global buffer_list, name_detection, product_name
+    updated_frame = resized_frame.copy()
+    results_expiry_detection = expiry_detection_model(updated_frame, verbose=False)
+    for box in results_expiry_detection[0].boxes:
+        confidence = box.conf.item()
+        if confidence > expiry_conf:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            save_expiry_image(updated_frame, x1, y1, x2, y2, product_name)
+            cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.putText(updated_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    return updated_frame
 
 
 
@@ -110,51 +151,22 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             image_data = await websocket.receive_text()
             header, encoded = image_data.split(',', 1)
             data = base64.b64decode(encoded)
-            
-            img_array = np.frombuffer(data, np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            resized_frame = cv2.resize(img, (640, 640))
 
             frame_queue.clear()
-            frame_queue.append(resized_frame)
-            latest_frame = frame_queue[0]
-
-            if(in_sensor):
-
-                if(name_detection) :
-
-                    results_object_detection = object_detection_model(latest_frame, verbose = False)
-
-                    for box in results_object_detection[0].boxes:
-                        confidence = box.conf.item()
-                        if confidence > 0.65:
-                            name = results_object_detection[0].names[int(box.cls)]
-                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                            label = f"{name} {confidence:.2f}"
-                            print(f"NAME : {name}")
-                            buffer_list.append(name)
-                            cv2.rectangle(latest_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(latest_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                            if(len(buffer_list) == 25) :
-                                print("buffer list full")
-                                product_name = Most_Common(buffer_list)
-                                print(f"PRODUCT NAME : {product_name}")
-                                name_detection = False
-                        else :
-                            label = f"NONE {confidence:.2f}"
-                            print(f"NULL NAME : {label}")
-                        
-                else :
+            frame_queue.append(data)
+            latest_data = frame_queue[0]
             
-                    results_expiry_detection = expiry_detection_model(latest_frame, verbose=False)
-                    # Process expiry detection results
-                    for box in results_expiry_detection[0].boxes:
-                        confidence = box.conf.item()
-                        if confidence > 0.70:
-                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                            save_expiry_image(latest_frame,x1,y1,x2,y2,product_name)
-                            cv2.rectangle(latest_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(latest_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            img_array = np.frombuffer(latest_data, np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            latest_frame = cv2.resize(img, (640, 640))
+
+            if in_sensor:
+                if name_detection:
+                    updated_frame = await process_object_detection(latest_frame)
+                else:
+                    updated_frame = await process_expiry_detection(latest_frame)
+            else:
+                updated_frame = latest_frame
 
 
             if(not in_sensor) :
@@ -171,7 +183,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             # cv2.waitKey(1)  # Display the image for 1 ms
 
             # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', latest_frame)
+            _, buffer = cv2.imencode('.jpg', updated_frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
@@ -250,7 +262,7 @@ async def websocket_camera_feed_fruit(websocket: WebSocket):
 
                 # Update track history with current frame data
                 for box, track_id, confidence, cls in zip(boxes, track_ids, confidences, classes):
-                    if confidence > 0.65:
+                    if confidence > fruit_conf:
                         x1, y1, x2, y2 = map(int, box)
                         obj_name = object_detection_model.names[cls]
 
