@@ -90,6 +90,13 @@ def Most_Common(lst):
     data = Counter(lst)
     return data.most_common(1)[0][0]
 
+
+
+
+
+
+
+
 @app.websocket("/ws/camera_feed_expiry")
 async def websocket_camera_feed_packed_products(websocket: WebSocket):
     await websocket.accept()
@@ -126,8 +133,8 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                             label = f"{name} {confidence:.2f}"
                             print(f"NAME : {name}")
                             buffer_list.append(name)
-                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                            cv2.rectangle(latest_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(latest_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                             if(len(buffer_list) == 25) :
                                 print("buffer list full")
                                 product_name = Most_Common(buffer_list)
@@ -139,15 +146,15 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                         
                 else :
             
-                    results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
+                    results_expiry_detection = expiry_detection_model(latest_frame, verbose=False)
                     # Process expiry detection results
                     for box in results_expiry_detection[0].boxes:
                         confidence = box.conf.item()
                         if confidence > 0.70:
                             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                            save_expiry_image(resized_frame,x1,y1,x2,y2,product_name)
-                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(resized_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                            save_expiry_image(latest_frame,x1,y1,x2,y2,product_name)
+                            cv2.rectangle(latest_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                            cv2.putText(latest_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
 
             if(not in_sensor) :
@@ -164,7 +171,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             # cv2.waitKey(1)  # Display the image for 1 ms
 
             # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', resized_frame)
+            _, buffer = cv2.imencode('.jpg', latest_frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
