@@ -42,7 +42,7 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 #     with open("data/expiry_details.json", 'w') as file:
 #         json.dump(data, file, indent=4)
 
-def append_to_json_file(expiry, mfg, batch_no, object_name):
+def append_to_json_file(expiry:str, mfg:str, batch_no:str, object_name):
     # Check if the file exists
     if os.path.exists("data/expiry_details.json"):
         # Read the existing data
@@ -55,6 +55,13 @@ def append_to_json_file(expiry, mfg, batch_no, object_name):
         data = []
 
     # Create a new entry
+    if "missing" in mfg.lower() :
+        mfg = "missing"
+    if "missing" in expiry.lower() :
+        expiry = "missing"
+    if "missing" in batch_no.lower() :
+        batch_no = "missing"
+         
     new_entry = {
         'object_name': object_name,
         'mfg': mfg,
