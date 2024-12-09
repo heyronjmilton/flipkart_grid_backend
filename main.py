@@ -12,6 +12,7 @@ from ultralytics.utils.plotting import Annotator, colors
 
 from utils.image_process import save_expiry_image
 from utils.handlelist import make_object_final, clear_list
+from utils.handlereports import save_expiry_details_to_excel
 
 device = torch.device("cuda")
 
@@ -40,6 +41,9 @@ app.add_middleware(
 )
 
 
+obj_conf = 0.5
+expiry_conf = 0.5
+fruit_conf = 0.5
 
 
 process = None          #for the working of the file checker
@@ -67,6 +71,8 @@ in_sensor = False
 out_sensor = False
 product_dict = {}
 
+frame_queue = deque(maxlen=1)
+
 clear_list("expiry_details.json")
 
 # these are for counting functionality
@@ -87,6 +93,51 @@ def Most_Common(lst):
     data = Counter(lst)
     return data.most_common(1)[0][0]
 
+
+
+async def process_object_detection(latest_frame):
+    global buffer_list, name_detection, product_name
+    updated_frame = latest_frame.copy()
+    
+    results_object_detection = object_detection_model(updated_frame, verbose=False)
+
+    for box in results_object_detection[0].boxes:
+        confidence = box.conf.item()
+        if confidence > obj_conf:
+            name = results_object_detection[0].names[int(box.cls)]
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            label = f"{name} {confidence:.2f}"
+            print(f"NAME : {name}")
+            buffer_list.append(name)
+            cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(updated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            if len(buffer_list) == 25:
+                print("buffer list full")
+                product_name = Most_Common(buffer_list)
+                print(f"PRODUCT NAME : {product_name}")
+                name_detection = False
+        else:
+            label = f"NONE {confidence:.2f}"
+            print(f"NULL NAME : {label}")
+    return updated_frame
+
+# Offload expiry detection to a background task
+async def process_expiry_detection(resized_frame):
+    global buffer_list, name_detection, product_name
+    updated_frame = resized_frame.copy()
+    results_expiry_detection = expiry_detection_model(updated_frame, verbose=False)
+    for box in results_expiry_detection[0].boxes:
+        confidence = box.conf.item()
+        if confidence > expiry_conf:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            save_expiry_image(updated_frame, x1, y1, x2, y2, product_name)
+            cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.putText(updated_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    return updated_frame
+
+
+
+
 @app.websocket("/ws/camera_feed_expiry")
 async def websocket_camera_feed_packed_products(websocket: WebSocket):
     await websocket.accept()
@@ -100,47 +151,22 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             image_data = await websocket.receive_text()
             header, encoded = image_data.split(',', 1)
             data = base64.b64decode(encoded)
+
+            frame_queue.clear()
+            frame_queue.append(data)
+            latest_data = frame_queue[0]
             
-            img_array = np.frombuffer(data, np.uint8)
+            img_array = np.frombuffer(latest_data, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            resized_frame = cv2.resize(img, (640, 640))
+            latest_frame = cv2.resize(img, (640, 640))
 
-            if(in_sensor):
-
-                if(name_detection) :
-
-                    results_object_detection = object_detection_model(resized_frame, verbose = False)
-
-                    for box in results_object_detection[0].boxes:
-                        confidence = box.conf.item()
-                        if confidence > 0.65:
-                            name = results_object_detection[0].names[int(box.cls)]
-                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                            label = f"{name} {confidence:.2f}"
-                            print(f"NAME : {name}")
-                            buffer_list.append(name)
-                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                            cv2.putText(resized_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                            if(len(buffer_list) == 25) :
-                                print("buffer list full")
-                                product_name = Most_Common(buffer_list)
-                                print(f"PRODUCT NAME : {product_name}")
-                                name_detection = False
-                        else :
-                            label = f"NONE {confidence:.2f}"
-                            print(f"NULL NAME : {label}")
-                        
-                else :
-            
-                    results_expiry_detection = expiry_detection_model(resized_frame, verbose=False)
-                    # Process expiry detection results
-                    for box in results_expiry_detection[0].boxes:
-                        confidence = box.conf.item()
-                        if confidence > 0.70:
-                            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                            save_expiry_image(resized_frame,x1,y1,x2,y2,product_name)
-                            cv2.rectangle(resized_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            cv2.putText(resized_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            if in_sensor:
+                if name_detection:
+                    updated_frame = await process_object_detection(latest_frame)
+                else:
+                    updated_frame = await process_expiry_detection(latest_frame)
+            else:
+                updated_frame = latest_frame
 
 
             if(not in_sensor) :
@@ -151,13 +177,13 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                 name_detection = True
                 print("not in active state")
 
-
+            
             # cv2.imshow("Camera Feed", resized_frame)
             # cv2.imshow("Object and expiry detection", resized_frame)
             # cv2.waitKey(1)  # Display the image for 1 ms
 
             # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', resized_frame)
+            _, buffer = cv2.imencode('.jpg', updated_frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
@@ -236,7 +262,7 @@ async def websocket_camera_feed_fruit(websocket: WebSocket):
 
                 # Update track history with current frame data
                 for box, track_id, confidence, cls in zip(boxes, track_ids, confidences, classes):
-                    if confidence > 0.65:
+                    if confidence > fruit_conf:
                         x1, y1, x2, y2 = map(int, box)
                         obj_name = object_detection_model.names[cls]
 
@@ -397,14 +423,28 @@ async def stop_process():
         process.kill()
         return {"message": "Process forcefully killed"}
 
-@app.get("/finish-task")
-async def finsihTask():
+@app.post("/finish-task")
+async def finsihTask(batch_name:str, tasktype:str):
 
     global in_sensor
+    reports_folder = "reports"
 
-    clear_list("expiry_details.json")
+    if(tasktype == "expiry") :
+        print("PROCESSING ITEM DETECTION REPORT")
+        with open(f"data/{tasktype}_details.json", 'r') as file:
+            data = json.load(file)
+        save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_{tasktype}_details.xlsx")
+        clear_list("expiry_details.json")
+        print("PROCESSING COMPLETE")
+    elif(tasktype == "fruit") :
+        print("PROCESSING FRUIT DETECTION REPORT")
+
+    else:
+        print(f"ERROR TASK TYPE : {tasktype}")
+        return {"msg" : "invalid task details"}
+
     in_sensor = False
-    return {"msg" : "expiry details cleared"}
+    return {"msg" : f"{tasktype} details saved"}
 
 @app.get("/get-sensor-data")
 def getSensorData():
