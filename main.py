@@ -1,5 +1,6 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 import base64
 import cv2
@@ -70,7 +71,7 @@ in_sensor = False
 out_sensor = False
 product_dict = {}
 
-frame_queue = deque(maxlen=1)
+frame_queue = deque(maxlen=1) #queue to get only the latest frames
 
 clear_list("expiry_details.json")
 
@@ -81,6 +82,7 @@ track_history = defaultdict(lambda: {'last_seen': time.time(), 'box': None, 'con
 detected_objects_list = []
 detected_fruits_list = []
 
+report_generated = False
 
 
 def Most_Common(lst):
@@ -200,7 +202,8 @@ async def packed_products_expiry(websocket: WebSocket):
                         "details" : data,
                         "count" : len(data),
                         "product_name" : product_name,
-                        "name_detection" : name_detection
+                        "name_detection" : name_detection,
+                        "report_generated" : report_generated
                     }
                     await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
                 except Exception as e:
@@ -340,7 +343,6 @@ async def websocket_endpoint(websocket: WebSocket):
     #     await websocket.close()
 
 
-
 @app.get("/reset-detection")
 def resetDetection():
     global buffer_list, name_detection, product_name
@@ -354,7 +356,7 @@ def resetDetection():
 
 @app.get("/set-in-sensor")
 async def setNameDetection(value : int):
-    global in_sensor, buffer_list, name_detection, product_name
+    global in_sensor, buffer_list, name_detection, product_name, report_generated
     if(int(value) == 1) :
         if in_sensor == False :
             in_sensor = True
@@ -367,7 +369,7 @@ async def setNameDetection(value : int):
             in_sensor = False
             name_detection = True
             buffer_list = []
-    
+    report_generated = False
     return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
 
 
@@ -402,7 +404,7 @@ async def stop_process():
 @app.post("/finish-task")
 async def finsihTask(batch_name:str, tasktype:str):
 
-    global in_sensor
+    global in_sensor, report_generated
     reports_folder = "reports"
 
     if(tasktype == "packed") :
@@ -420,6 +422,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         return {"msg" : "invalid task details"}
 
     in_sensor = False
+    report_generated = True
     return {"msg" : f"{tasktype} details saved"}
 
 @app.get("/get-sensor-data")
@@ -430,6 +433,31 @@ def getSensorData():
         "out_sensor" : out_sensor
     }
     return data
+
+@app.get("/download-report")
+async def download_xlsx(batch_name: str,tasktype: str):
+    FILES_FOLDER = "reports"
+    # Ensure the requested file name ends with .xlsx
+    if tasktype == "packed" :
+        file_name = f"{batch_name}_expiry_details.xlsx"
+        print(f"{file_name}")
+    elif tasktype == "fruit" :
+        file_name = f"{batch_name}_fruit_details.xlsx"
+    else :
+        raise HTTPException(status_code=404, detail=f"INVALID TASK TYPE")
+    # Construct the full path to the file
+    file_path = os.path.join(FILES_FOLDER, file_name)
+    
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File '{file_name}' not found in the folder")
+    
+    # Return the .xlsx file as a response
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=file_name
+    )
 
 @app.get("/")
 def home():
