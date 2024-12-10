@@ -190,8 +190,9 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
 
 @app.websocket("/ws/packed_products_expiry")
 async def packed_products_expiry(websocket: WebSocket):
-    global product_name, name_detection
+    global product_name, name_detection, report_generated
     await websocket.accept()
+    report_generated = False
     try:
         while True:
             if os.path.exists("data/expiry_details.json"):
@@ -204,7 +205,8 @@ async def packed_products_expiry(websocket: WebSocket):
                         "count" : len(data),
                         "product_name" : product_name,
                         "name_detection" : name_detection,
-                        "report_generated" : report_generated
+                        "report_generated" : report_generated,
+                        "in_sensor" : in_sensor
                     }
                     await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
                 except Exception as e:
@@ -353,12 +355,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/reset-detection")
 def resetDetection():
-    global buffer_list, name_detection, product_name
+    global buffer_list, name_detection, product_name, report_generated
 
     buffer_list = []
     name_detection = True
     product_name = None
-
+    report_generated = False
     return {"msg" : "detected objected resetted"}
 
 
@@ -444,6 +446,7 @@ def getSensorData():
 
 @app.get("/download-report")
 async def download_xlsx(batch_name: str,tasktype: str):
+    global report_generated
     FILES_FOLDER = "reports"
     # Ensure the requested file name ends with .xlsx
     if tasktype == "packed" :
@@ -461,6 +464,7 @@ async def download_xlsx(batch_name: str,tasktype: str):
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found in the folder")
     
     # Return the .xlsx file as a response
+    report_generated = False
     return FileResponse(
         file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
