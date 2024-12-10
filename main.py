@@ -331,7 +331,14 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Send item updates to the connected client
             try:
-                await websocket.send_text(json.dumps(detected_fruits_list))  # Convert items to JSON string
+                data_to_send = {
+                        "details" : detected_fruits_list,
+                        "count" : len(detected_fruits_list),
+                        "product_name" : product_name,
+                        "name_detection" : name_detection,
+                        "report_generated" : report_generated
+                    }
+                await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
             except Exception as e:
                 print(f"Error sending message: {e}")
                 break  # Break the loop if there is an error in sending
