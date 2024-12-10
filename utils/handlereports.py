@@ -54,4 +54,39 @@ def save_expiry_details_to_excel(data, folder, file_name):
         adjusted_width = max_length + 2
         summary_sheet.column_dimensions[column_letter].width = adjusted_width
 
-    workbook.save(excel_file)    
+    workbook.save(excel_file) 
+
+def save_fruit_details_to_excel(data, folder, file_name):
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    excel_file = os.path.join(folder, file_name)
+
+    workbook = openpyxl.Workbook()
+
+    fruits_sheet = workbook.active
+    fruits_sheet.title = "Fruits and Vegetables Sheet"
+
+    fruits_sheet_header = ["Item", "Quality", "Count"]
+    fruits_sheet.append(fruits_sheet_header)
+    for key,value in data.items():
+        item_name = key.split("_")[1]
+        item_quality = key.split("_")[0]
+        item_count = value
+        fruits_sheet.append([item_name, item_quality, item_count])
+    
+    for column in fruits_sheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter  # Get the column letter
+        for cell in column:
+            try:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            except:
+                pass
+        adjusted_width = max_length + 2
+        fruits_sheet.column_dimensions[column_letter].width = adjusted_width
+    
+    workbook.save(excel_file) 
+
+    # print(f"fruit sheet header : {fruits_sheet_header}")

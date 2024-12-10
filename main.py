@@ -14,7 +14,7 @@ from ultralytics.utils.plotting import Annotator, colors
 
 from utils.image_process import save_expiry_image
 from utils.handlelist import make_object_final, clear_list
-from utils.handlereports import save_expiry_details_to_excel
+from utils.handlereports import save_expiry_details_to_excel, save_fruit_details_to_excel
 from utils.handleuploads import handle_file_upload
 
 device = torch.device("cuda")
@@ -161,10 +161,12 @@ async def process_fruit_detection(resized_frame):
 
 @app.websocket("/ws/camera_feed_expiry")
 async def websocket_camera_feed_packed_products(websocket: WebSocket):
+    
     await websocket.accept()
     print("WebSocket connection established for object detection")
 
-    global in_sensor, buffer_list, product_name, name_detection
+    global in_sensor, buffer_list, product_name, name_detection, report_generated
+    report_generated = False
 
     try:
         while True:
@@ -253,7 +255,8 @@ async def packed_products_expiry(websocket: WebSocket):
 @app.websocket("/ws/camera_feed_fruit")
 async def websocket_camera_feed_fruit(websocket: WebSocket):
     await websocket.accept()
-    global fruit_veggie_final_dict,current_fruit_veggie_dict,prev_fruit_veggie_count, total_fruit_veggie_count, current_fruit_veggie_count, realtime_fruit_veggie_dict
+    global fruit_veggie_final_dict,current_fruit_veggie_dict,prev_fruit_veggie_count, total_fruit_veggie_count, current_fruit_veggie_count, realtime_fruit_veggie_dict, report_generated
+    report_generated = False
     print("WebSocket connection established for fruit detection")
 
     try:
@@ -279,7 +282,7 @@ async def websocket_camera_feed_fruit(websocket: WebSocket):
                 fruit_veggie_buffer.append(class_name_dict_string)
                 current_fruit_veggie_dict=ast.literal_eval(Counter(fruit_veggie_buffer).most_common()[0][0])
                 current_fruit_veggie_count = sum(realtime_fruit_veggie_dict.values())
-                print(f"current details {realtime_fruit_veggie_dict} current count : {current_fruit_veggie_count}")
+                # print(f"current details {realtime_fruit_veggie_dict} current count : {current_fruit_veggie_count}")
             else :
                 # print("inactive state")
                 realtime_fruit_veggie_dict = {}
@@ -344,19 +347,21 @@ def resetDetection():
 
 @app.get("/set-in-sensor")
 async def setNameDetection(value : int):
-    global in_sensor, buffer_list, name_detection, product_name, report_generated
+    global in_sensor, buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer
     if(int(value) == 1) :
         if in_sensor == False :
             in_sensor = True
             product_name = None
             buffer_list = []
             name_detection = True
+            fruit_veggie_buffer.clear()
         
     elif(int(value) == 0) :
         if in_sensor == True :
             in_sensor = False
             name_detection = True
             buffer_list = []
+            fruit_veggie_buffer.clear()
     report_generated = False
     return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
 
@@ -392,7 +397,7 @@ async def stop_process():
 @app.post("/finish-task")
 async def finsihTask(batch_name:str, tasktype:str):
 
-    global in_sensor, report_generated
+    global in_sensor, report_generated, fruit_veggie_final_dict, total_fruit_veggie_count
     reports_folder = "reports"
 
     if(tasktype == "packed") :
@@ -403,10 +408,15 @@ async def finsihTask(batch_name:str, tasktype:str):
         clear_list("expiry_details.json")
         print("PROCESSING COMPLETE")
     elif(tasktype == "fruit") :
+        save_fruit_details_to_excel(fruit_veggie_final_dict, reports_folder, f"{batch_name}_fruit_details.xlsx")
+
         print("PROCESSING FRUIT DETECTION REPORT")
+        fruit_veggie_final_dict = {}
+        total_fruit_veggie_count = 0
 
     else:
         print(f"ERROR TASK TYPE : {tasktype}")
+        report_generated = False
         return {"msg" : "invalid task details"}
 
     in_sensor = False
