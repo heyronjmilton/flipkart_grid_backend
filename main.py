@@ -1,6 +1,6 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import base64
 import cv2
@@ -14,6 +14,7 @@ from ultralytics.utils.plotting import Annotator, colors
 from utils.image_process import save_expiry_image
 from utils.handlelist import make_object_final, clear_list
 from utils.handlereports import save_expiry_details_to_excel
+from utils.handleuploads import handle_file_upload
 
 device = torch.device("cuda")
 
@@ -464,6 +465,18 @@ async def download_xlsx(batch_name: str,tasktype: str):
         file_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=file_name
+    )
+
+
+@app.post("/upload-data-video")
+async def uploadDataVideo(file: UploadFile = File(...), class_name: str = Form(...),item_type: str = Form(...)):
+    print(f"filename : {file.filename}")
+    new_filename = f"{class_name}#{item_type}.mp4"
+    file.filename = new_filename
+    response_data = await handle_file_upload(file, class_name, item_type)
+    return JSONResponse(
+        content=response_data,
+        status_code=200
     )
 
 @app.get("/")
