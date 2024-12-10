@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import asyncio, json, torch, time, os, subprocess, threading
 from collections import defaultdict, deque, Counter
+import ast
 
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
@@ -72,6 +73,15 @@ in_sensor = False
 out_sensor = False
 product_dict = {}
 
+fruit_veggie_buffer_length = 200
+fruit_veggie_buffer = deque(maxlen=fruit_veggie_buffer_length)
+fruit_veggie_final_dict = {}
+current_fruit_veggie_dict={}
+prev_fruit_veggie_count={}
+total_fruit_veggie_count = 0
+current_fruit_veggie_count = 0
+realtime_fruit_veggie_dict = {}
+
 frame_queue = deque(maxlen=1) #queue to get only the latest frames
 
 clear_list("expiry_details.json")
@@ -131,7 +141,22 @@ async def process_expiry_detection(resized_frame):
             cv2.putText(updated_frame, f"Expiry {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
     return updated_frame
 
+async def process_fruit_detection(resized_frame):
+    results_fruit_detection = fruit_detection_model.track(resized_frame, verbose=False, persist=True)
 
+    inferenced_frame = resized_frame.copy()
+    class_name_list = []
+    for box in results_fruit_detection[0].boxes:
+        confidence = box.conf.item()
+        if confidence > fruit_conf:
+            name = results_fruit_detection[0].names[int(box.cls)]
+            class_name_list.append(name)
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            cv2.rectangle(inferenced_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.putText(inferenced_frame, f"{name} {confidence:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    class_name_dict = dict(Counter(class_name_list).most_common())
+
+    return inferenced_frame, class_name_dict
 
 
 @app.websocket("/ws/camera_feed_expiry")
@@ -228,117 +253,70 @@ async def packed_products_expiry(websocket: WebSocket):
 @app.websocket("/ws/camera_feed_fruit")
 async def websocket_camera_feed_fruit(websocket: WebSocket):
     await websocket.accept()
+    global fruit_veggie_final_dict,current_fruit_veggie_dict,prev_fruit_veggie_count, total_fruit_veggie_count, current_fruit_veggie_count, realtime_fruit_veggie_dict
     print("WebSocket connection established for fruit detection")
 
     try:
         while True:
             # Wait for the client to send an image
             image_data = await websocket.receive_text()
-
-            # Extract the base64 string from the data URL
             header, encoded = image_data.split(',', 1)
-            # Decode the image
             data = base64.b64decode(encoded)
-    
-            # Convert to a numpy array and decode the image
-            img_array = np.frombuffer(data, np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-            resized_frame = cv2.resize(img, (640, 640))
-
-            results = fruit_detection_model.track(resized_frame, verbose=False, persist=True)
-            current_time = time.time()
-            annotator = Annotator(resized_frame, line_width=2)
+            frame_queue.clear()
+            frame_queue.append(data)
+            latest_data = frame_queue[0]
             
-            global detected_fruits_list
-            detected_fruits  = []
-            detected_fruits_list = []
-            if results and results[0].boxes:  # Ensure there are boxes detected
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                confidences = results[0].boxes.conf.cpu().numpy()
-                classes = results[0].boxes.cls.int().cpu().tolist()
-                track_ids = results[0].boxes.id.int().cpu().tolist() if results[0].boxes.id is not None else [None] * len(boxes)
-
-                # Update track history with current frame data
-                for box, track_id, confidence, cls in zip(boxes, track_ids, confidences, classes):
-                    if confidence > fruit_conf:
-                        x1, y1, x2, y2 = map(int, box)
-                        obj_name = object_detection_model.names[cls]
-
-                        # Store the box and confidence for smoothing
-                        track_history[track_id]['last_seen'] = current_time
-                        track_history[track_id]['box'] = (x1, y1, x2, y2)
-                        track_history[track_id]['confidence'] = confidence
-                        track_history[track_id]['name'] = obj_name
-            else:
-                print("No boxes detected in this frame.")
-
-            # Draw boxes from history to prevent flicker
-            for track_id, data in track_history.items():
-                # If the object has been inactive for too long, skip it
-                if current_time - data['last_seen'] > max_inactive_time:
-                    continue
+            img_array = np.frombuffer(latest_data, np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            latest_frame = cv2.resize(img, (640, 640))
+            
+            if in_sensor:
+                inferenced_frame, class_name_dict = await process_fruit_detection(latest_frame)
+                realtime_fruit_veggie_dict = Counter(class_name_dict)
+                class_name_dict_string = str(class_name_dict)
                 
-                # Use the last known position to draw the box
-                if data['box'] is not None:  # Check if the box exists
-                    x1, y1, x2, y2 = data['box']
-                    label = f"{data['name']} (ID: {track_id}) {data['confidence']:.2f}"
-                    
-                    # Ensure track_id is not None before passing to colors
-                    if track_id is not None:
-                        color = colors(track_id, True)
-                    else:
-                        color = (255, 0, 0)  # Default color if track_id is None
-                    
-                    annotator.box_label((x1, y1, x2, y2), label, color=color)
-                    detected_fruits.append((data['name'], track_id, data['confidence']))
+                fruit_veggie_buffer.append(class_name_dict_string)
+                current_fruit_veggie_dict=ast.literal_eval(Counter(fruit_veggie_buffer).most_common()[0][0])
+                current_fruit_veggie_count = sum(realtime_fruit_veggie_dict.values())
+                print(f"current details {realtime_fruit_veggie_dict} current count : {current_fruit_veggie_count}")
+            else :
+                # print("inactive state")
+                realtime_fruit_veggie_dict = {}
+                current_fruit_veggie_count = 0
+                inferenced_frame = latest_frame 
+                if(current_fruit_veggie_dict!=prev_fruit_veggie_count):
+                    fruit_veggie_final_dict=Counter(fruit_veggie_final_dict)+Counter(current_fruit_veggie_dict)
+                    fruit_veggie_buffer.clear() 
+                    total_fruit_veggie_count = sum(fruit_veggie_final_dict.values())  
+                    fruit_veggie_final_dict=dict(fruit_veggie_final_dict)
+                    print(fruit_veggie_final_dict)   
+                    prev_fruit_veggie_count=current_fruit_veggie_dict           
 
-            # Get the annotated frame for display
-            annotated_frame = annotator.result()
-
-            # Write the annotated frame to the output video
-            out.write(annotated_frame)
-
-
-            if detected_fruits:
-                print("Detected objects in this frame:")
-                for obj_name, track_id, confidence in detected_fruits:
-                    print(f"Object: {obj_name}, Track ID: {track_id}, Confidence: {confidence:.2f}")
-                    detected_fruits_list.append({
-                        "object": obj_name,
-                        "track_id": track_id,
-                        "confidence": round(float(confidence),2)  # rounding to 2 decimal places
-                    })
-            else:
-                print("No objects detected with confidence > 0.65 in this frame.")
-
-            # Display the image using OpenCV
-            cv2.imshow("Camera Feed", resized_frame)
-            cv2.imshow("Inferneced Fruit Feed", annotated_frame)
-            cv2.waitKey(1)  # Display the image for 1 ms
-
-            # Encode the image to base64 to send it back
-            _, buffer = cv2.imencode('.jpg', annotated_frame)
+                    # Encode the image to base64 to send it back
+            _, buffer = cv2.imencode('.jpg', inferenced_frame)
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
 
     except WebSocketDisconnect:
         print("WebSocket connection closed.")
+        fruit_veggie_buffer.clear()
         cv2.destroyAllWindows()  # Close the preview window when the connection is closed
 
 @app.websocket("/ws/fruits")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    global detected_fruits_list
+    global fruit_veggie_final_dict, current_fruit_veggie_dict, total_fruit_veggie_count, current_fruit_veggie_count
     try:
         while True:
             # Send item updates to the connected client
             try:
                 data_to_send = {
-                        "details" : detected_fruits_list,
-                        "count" : len(detected_fruits_list),
-                        "product_name" : product_name,
-                        "name_detection" : name_detection,
+                        "details" : fruit_veggie_final_dict,
+                        "current_details" : realtime_fruit_veggie_dict,
+                        "count" : total_fruit_veggie_count,
+                        "current_count" : current_fruit_veggie_count,
+                        "in_sensor" : in_sensor,
                         "report_generated" : report_generated
                     }
                 await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
