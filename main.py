@@ -198,7 +198,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
                     make_object_final(product_name,"expiry_details.json")
                 product_name = None
                 name_detection = True
-                print("not in active state")
+                # print("not in active state")
 
             
             # cv2.imshow("Camera Feed", resized_frame)

@@ -5,6 +5,10 @@ import tempfile
 from dotenv import load_dotenv
 import json
 import requests
+from datetime import datetime
+import pytz
+
+timezone = pytz.timezone('Asia/Kolkata')
 
 load_dotenv()
 
@@ -36,11 +40,17 @@ def append_to_json_file(expiry:str, mfg:str, batch_no:str, object_name):
     if "missing" in batch_no.lower() :
         batch_no = "missing"
 
+    current_time = datetime.now(timezone)
+    iso_timestamp = current_time.isoformat()
+
     new_entry = {
+        'timestamp' : iso_timestamp,
         'object_name': object_name,
-        'mfg': mfg,
         'expiry': expiry,
-        'batch_no': batch_no
+        'mfg': mfg,
+        'batch_no': batch_no,
+        'expired' : None,
+        'life' : 0
     }
 
     # Check for duplicates based on 'object_name'
@@ -97,8 +107,8 @@ def process_image(roi_image,name):
             "manufacture date, and batch number of the product. If anything is missing, just say 'missing'"
             "i need reply with a end word in next line"
             "OUTPUT SHOULD STRICTLY be like "
-            " start Expiry date: xx/xx/xxxx end"
-            " start Manufacture date: xx/xx/xxxx end"
+            " start Expiry date: YYYY/MM/DD end"
+            " start Manufacture date: YYYY/MM/DD end"
             " start Batch number: xxxxxxxx end"
         )
 

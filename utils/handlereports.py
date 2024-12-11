@@ -1,6 +1,10 @@
 import os, openpyxl
 from collections import Counter
 
+
+
+
+
 def save_expiry_details_to_excel(data, folder, file_name):
 
     if not os.path.exists(folder):
@@ -18,9 +22,12 @@ def save_expiry_details_to_excel(data, folder, file_name):
     items_sheet.title = "Items Sheet"
 
     items_sheet_headers = list(data[0].keys())
-    items_sheet.append(list(items_sheet_headers))
-    for row in data:
-        items_sheet.append(list(row.values()))
+    items_sheet_headers.insert(0, "SI no")  # Add a new header for serial numbers
+    items_sheet.append(items_sheet_headers)
+
+    for index, row in enumerate(data, start=1):  # Use enumerate to generate serial numbers starting from 1
+        row_with_serial = [index] + list(row.values())  # Prepend the serial number to the row
+        items_sheet.append(row_with_serial)
 
     for column in items_sheet.columns:
         max_length = 0
