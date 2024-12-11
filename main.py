@@ -81,6 +81,7 @@ prev_fruit_veggie_count={}
 total_fruit_veggie_count = 0
 current_fruit_veggie_count = 0
 realtime_fruit_veggie_dict = {}
+fruitFlag = True
 
 frame_queue = deque(maxlen=1) #queue to get only the latest frames
 
@@ -255,7 +256,7 @@ async def packed_products_expiry(websocket: WebSocket):
 @app.websocket("/ws/camera_feed_fruit")
 async def websocket_camera_feed_fruit(websocket: WebSocket):
     await websocket.accept()
-    global fruit_veggie_final_dict,current_fruit_veggie_dict,prev_fruit_veggie_count, total_fruit_veggie_count, current_fruit_veggie_count, realtime_fruit_veggie_dict, report_generated
+    global fruit_veggie_final_dict,current_fruit_veggie_dict,prev_fruit_veggie_count, total_fruit_veggie_count, current_fruit_veggie_count, realtime_fruit_veggie_dict, report_generated, fruitFlag
     report_generated = False
     print("WebSocket connection established for fruit detection")
 
@@ -282,19 +283,21 @@ async def websocket_camera_feed_fruit(websocket: WebSocket):
                 fruit_veggie_buffer.append(class_name_dict_string)
                 current_fruit_veggie_dict=ast.literal_eval(Counter(fruit_veggie_buffer).most_common()[0][0])
                 current_fruit_veggie_count = sum(realtime_fruit_veggie_dict.values())
+                fruitFlag = True
                 # print(f"current details {realtime_fruit_veggie_dict} current count : {current_fruit_veggie_count}")
             else :
                 # print("inactive state")
                 realtime_fruit_veggie_dict = {}
                 current_fruit_veggie_count = 0
                 inferenced_frame = latest_frame 
-                if(current_fruit_veggie_dict!=prev_fruit_veggie_count):
+                if(fruitFlag):
                     fruit_veggie_final_dict=Counter(fruit_veggie_final_dict)+Counter(current_fruit_veggie_dict)
                     fruit_veggie_buffer.clear() 
                     total_fruit_veggie_count = sum(fruit_veggie_final_dict.values())  
                     fruit_veggie_final_dict=dict(fruit_veggie_final_dict)
                     print(fruit_veggie_final_dict)   
-                    prev_fruit_veggie_count=current_fruit_veggie_dict           
+                    prev_fruit_veggie_count=current_fruit_veggie_dict
+                    fruitFlag = False 
 
                     # Encode the image to base64 to send it back
             _, buffer = cv2.imencode('.jpg', inferenced_frame)
@@ -336,7 +339,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/reset-detection")
 def resetDetection():
-    global buffer_list, name_detection, product_name, report_generated
+    global buffer_list, name_detection, product_name, report_generated,fruit_veggie_final_dict
 
     buffer_list = []
     name_detection = True
@@ -347,7 +350,7 @@ def resetDetection():
 
 @app.get("/set-in-sensor")
 async def setNameDetection(value : int):
-    global in_sensor, buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer
+    global in_sensor, buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, fruitFlag
     if(int(value) == 1) :
         if in_sensor == False :
             in_sensor = True
@@ -355,6 +358,7 @@ async def setNameDetection(value : int):
             buffer_list = []
             name_detection = True
             fruit_veggie_buffer.clear()
+
         
     elif(int(value) == 0) :
         if in_sensor == True :
@@ -362,6 +366,7 @@ async def setNameDetection(value : int):
             name_detection = True
             buffer_list = []
             fruit_veggie_buffer.clear()
+            fruitFlag = True
     report_generated = False
     return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
 
