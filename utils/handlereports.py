@@ -1,7 +1,11 @@
 import os, openpyxl
 from collections import Counter
+from datetime import datetime
+import pytz
 
+timezone = pytz.timezone('Asia/Kolkata')
 
+quality_map = {"good" : 7,"avg" : 4, "bad" : 0}
 
 
 
@@ -21,7 +25,8 @@ def save_expiry_details_to_excel(data, folder, file_name):
     items_sheet = workbook.active
     items_sheet.title = "Items Sheet"
 
-    items_sheet_headers = list(data[0].keys())
+
+    items_sheet_headers = ["Timestamp","Item","Expiry Date","Manufacture Date","Batch No","Expired","Expected Life Span (days)"]
     items_sheet_headers.insert(0, "SI no")  # Add a new header for serial numbers
     items_sheet.append(items_sheet_headers)
 
@@ -74,13 +79,16 @@ def save_fruit_details_to_excel(data, folder, file_name):
     fruits_sheet = workbook.active
     fruits_sheet.title = "Fruits and Vegetables Sheet"
 
-    fruits_sheet_header = ["Item", "Quality", "Count"]
+    fruits_sheet_header = ["SI no","Timestamp","Item", "Quality", "Count","Expected Life Span (days)"]
     fruits_sheet.append(fruits_sheet_header)
-    for key,value in data.items():
+    for index, (key, value) in enumerate(data.items(), start=1):
+        current_time = datetime.now(timezone)  # Example timezone; adjust as needed
+        iso_timestamp = current_time.isoformat()
         item_name = key.split("_")[1]
         item_quality = key.split("_")[0]
+        item_life = quality_map[key.split("_")[0]]
         item_count = value
-        fruits_sheet.append([item_name, item_quality, item_count])
+        fruits_sheet.append([index, iso_timestamp, item_name, item_quality, item_count, item_life])
     
     for column in fruits_sheet.columns:
         max_length = 0
