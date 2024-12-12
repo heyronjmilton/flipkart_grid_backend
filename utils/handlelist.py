@@ -59,8 +59,7 @@ def make_object_final(object_name,file_name) : #expiry_details.json(packed produ
                 elif exp_ordinary_date < current_date :
                     expired = "YES"
                     entry['expired'] = expired
-                if entry['expired'] == None :
-                    entry['expired'] = "NULL"
+                
                 
                 if entry['expired'] != "YES" and entry['expired'] != "NULL" and entry['expired'] == "NO" :
                     life = (exp_ordinary_date - mfg_ordinary_date).days

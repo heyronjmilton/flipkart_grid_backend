@@ -49,7 +49,7 @@ def append_to_json_file(expiry:str, mfg:str, batch_no:str, object_name):
         'expiry': expiry,
         'mfg': mfg,
         'batch_no': batch_no,
-        'expired' : None,
+        'expired' : "NULL",
         'life' : 0
     }
 
