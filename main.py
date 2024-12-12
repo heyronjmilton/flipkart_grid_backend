@@ -339,12 +339,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/reset-detection")
 def resetDetection():
-    global buffer_list, name_detection, product_name, report_generated,fruit_veggie_final_dict
+    global buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer
 
     buffer_list = []
     name_detection = True
     product_name = None
     report_generated = False
+    fruit_veggie_buffer.clear()
     return {"msg" : "detected objected resetted"}
 
 
