@@ -129,9 +129,9 @@ def process_image(roi_image,name):
             print(f"Error: {error}")
             return None
     else:
-        print("Result:")
+        # print("Result:")
         print(result_text)
-        print("parsed output from the AI")
+        # print("parsed output from the AI")
         full_data=result_text
         expiry_date=full_data.split("Expiry date")[1].split("end")[0].strip(":").strip()
         manufacture_date=full_data.split("Manufacture date")[1].split("end")[0].strip(":").strip()

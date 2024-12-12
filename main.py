@@ -351,7 +351,7 @@ def resetDetection():
 
 @app.get("/set-in-sensor")
 async def setNameDetection(value : int):
-    global in_sensor, buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, fruitFlag
+    global in_sensor, buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, fruitFlag, process
     if(int(value) == 1) :
         if in_sensor == False :
             in_sensor = True
@@ -368,6 +368,17 @@ async def setNameDetection(value : int):
             buffer_list = []
             fruit_veggie_buffer.clear()
             fruitFlag = True
+            with process_lock:
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process = None  # Clear the process reference
+            
+                if os.name == 'nt':  # For Windows
+                    process = subprocess.Popen(['venv\\Scripts\\python.exe', 'file_checker.py'])
+                else:  # For Linux/macOS
+                    process = subprocess.Popen(['venv/bin/python', 'file_checker.py'])
+                print(f"Started subprocess with PID: {process.pid}")
+            
     report_generated = False
     return {"in_sensor" : in_sensor, "name_detection" : name_detection, "product_name" : product_name }
 
