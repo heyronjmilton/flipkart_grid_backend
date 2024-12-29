@@ -17,6 +17,12 @@ from utils.handlelist import make_object_final, clear_list
 from utils.handlereports import save_expiry_details_to_excel, save_fruit_details_to_excel
 from utils.handleuploads import handle_file_upload
 
+import hashlib
+import shutil
+import boto3
+from botocore.exceptions import NoCredentialsError
+from dotenv import load_dotenv
+
 device = torch.device("cuda")
 
 object_detection_model = YOLO("model/object_detection.pt")
@@ -43,6 +49,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+load_dotenv()
+device_id = os.getenv('DEVICE_ID')
 
 obj_conf = 0.5 #model confidence variables
 expiry_conf = 0.5
@@ -101,24 +109,74 @@ def Most_Common(lst):
     data = Counter(lst)
     return data.most_common(1)[0][0]
 
+def upload_to_s3(bucket_name, file_name, object_name=None):
+    """
+    Upload a file to an S3 bucket.
+
+    :param bucket_name: Bucket to upload to
+    :param file_name: File to upload
+    :param object_name: S3 object name. If not specified, file_name is used.
+    :return: True if file was uploaded, else False
+    """
+    # Use the file name if no object name is provided
+    if object_name is None:
+        object_name = file_name
+
+    # Create an S3 client
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+        region_name=os.getenv('AWS_REGION')
+    )
+
+    try:
+        # Upload the file
+        s3_client.upload_file(file_name, bucket_name, object_name)
+        print(f"File {file_name} uploaded to {bucket_name}/{object_name}")
+        return True
+    except FileNotFoundError:
+        print(f"File {file_name} not found.")
+    except NoCredentialsError:
+        print("Credentials not available.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    return False
+
 
 
 async def process_object_detection(latest_frame):
     global buffer_list, name_detection, product_name
-    updated_frame = latest_frame.copy()
     
+    updated_frame = latest_frame.copy()
+    height, width = updated_frame.shape[:2]  # Get image dimensions
     results_object_detection = object_detection_model(updated_frame, verbose=False)
-
+    yolo_annotations = []  # List to store YOLO format annotations
+    
     for box in results_object_detection[0].boxes:
         confidence = box.conf.item()
         if confidence > obj_conf:
             name = results_object_detection[0].names[int(box.cls)]
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            
+            # Calculate YOLO format coordinates (normalized)
+            x_center = ((x1 + x2) / 2) / width
+            y_center = ((y1 + y2) / 2) / height
+            w = (x2 - x1) / width
+            h = (y2 - y1) / height
+            
+            # Store YOLO format annotation: class_id x_center y_center width height
+            class_id = int(box.cls)
+            yolo_annotation = f"{class_id} {x_center:.6f} {y_center:.6f} {w:.6f} {h:.6f}"
+            yolo_annotations.append(yolo_annotation)
+            
+            # Original visualization code
             label = f"{name} {confidence:.2f}"
             print(f"NAME : {name}")
             buffer_list.append(name)
             cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(updated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
             if len(buffer_list) == 25:
                 print("buffer list full")
                 product_name = Most_Common(buffer_list)
@@ -127,7 +185,8 @@ async def process_object_detection(latest_frame):
         else:
             label = f"NONE {confidence:.2f}"
             print(f"NULL NAME : {label}")
-    return updated_frame
+    
+    return updated_frame, yolo_annotations
 
 async def process_expiry_detection(resized_frame):
     global buffer_list, name_detection, product_name
@@ -183,10 +242,35 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
             img_array = np.frombuffer(latest_data, np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             latest_frame = cv2.resize(img, (640, 640))
-
+            annotation = None
             if in_sensor:
                 if name_detection:
-                    updated_frame = await process_object_detection(latest_frame)
+                    updated_frame , annotation = await process_object_detection(latest_frame)
+                    
+                    if annotation:
+                        # Convert the frame to bytes
+                        annotated_frame_bytes = updated_frame.tobytes()
+
+                        # Hash the bytes using SHA-256
+                        annotated_frame_name = hashlib.sha256(annotated_frame_bytes).hexdigest()
+
+                        # Convert the frame to bytes
+                        frame_bytes = latest_frame.tobytes()
+
+                        # Hash the bytes using SHA-256
+                        frame_name = hashlib.sha256(frame_bytes).hexdigest()
+
+                        os.makedirs("temp/annoated_frame", exist_ok=True)  # Create the directory if it doesn't exist
+                        os.makedirs("temp/images/", exist_ok=True)  # Create the directory if it doesn't exist
+                        os.makedirs("temp/labels/", exist_ok=True)  # Create the directory if it doesn't exist
+
+                        cv2.imwrite(f"temp/annoated_frame/{annotated_frame_name}.png",updated_frame)
+                        cv2.imwrite(f"temp/images/{frame_name}.png",latest_frame)
+                        with open(f"temp/labels/{frame_name}.txt", 'w') as file:
+                            file.write( "\n".join(annotation))
+                        
+
+                        annotation = None
                 else:
                     updated_frame = await process_expiry_detection(latest_frame)
             else:
@@ -423,7 +507,41 @@ async def finsihTask(batch_name:str, tasktype:str):
             data = json.load(file)
         save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_expiry_details.xlsx")
         clear_list("expiry_details.json")
+
+        try:
+            folder_path = "temp"
+            output_path = f"{batch_name}"
+
+            # Create ZIP archive
+            shutil.make_archive(output_path, 'zip', folder_path)
+
+            # Delete the folder
+            shutil.rmtree(folder_path)
+
+            print(f"Zipped contents to '{output_path}' and deleted folder '{folder_path}'.")
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+        BUCKET_NAME = "flipkart-reports"
+        FILE_NAME = f"reports/{batch_name}_expiry_details.xlsx"
+        OBJECT_NAME = f"{device_id}_{batch_name}_report.xlsx"  
+
+        # Call the upload function
+        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+
+
+        BUCKET_NAME = "ziplogs-flipkart"
+        FILE_NAME = f"{batch_name}.zip"
+        OBJECT_NAME = f"{device_id}/_{batch_name}.zip"  # Optional, specify custom object name if needed
+
+        # Call the upload function
+        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+
+        os.remove(FILE_NAME)
+
         print("PROCESSING COMPLETE")
+
     elif(tasktype == "fruit") :
         save_fruit_details_to_excel(fruit_veggie_final_dict, reports_folder, f"{batch_name}_fruit_details.xlsx")
 
