@@ -56,9 +56,6 @@ def append_to_json_file(expiry:str, mfg:str, batch_no:str, object_name):
     # Check for duplicates based on 'object_name'
     for index, entry in enumerate(data):
         if entry['object_name'] == object_name:
-            if (entry['expiry'] != "missing" and entry['mfg'] != "missing" and entry['batch_no'] != "missing") :
-                requests.get("http://localhost:8000/set-in-sensor?value=0")
-                break
             # Update existing entry only if the new value is not "missing"
             if expiry != "missing":
                 entry['expiry'] = expiry

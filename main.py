@@ -16,6 +16,7 @@ from utils.image_process import save_expiry_image
 from utils.handlelist import make_object_final, clear_list
 from utils.handlereports import save_expiry_details_to_excel, save_fruit_details_to_excel
 from utils.handleuploads import handle_file_upload
+from utils.gemini_processor import process_image
 
 import hashlib
 import shutil
@@ -90,6 +91,9 @@ total_fruit_veggie_count = 0
 current_fruit_veggie_count = 0
 realtime_fruit_veggie_dict = {}
 fruitFlag = True
+detection_progress = 0
+
+gpt_response = ""
 
 frame_queue = deque(maxlen=1) #queue to get only the latest frames
 
@@ -146,7 +150,7 @@ def upload_to_s3(bucket_name, file_name, object_name=None):
 
 
 async def process_object_detection(latest_frame):
-    global buffer_list, name_detection, product_name
+    global buffer_list, name_detection, product_name, detection_progress
     
     updated_frame = latest_frame.copy()
     height, width = updated_frame.shape[:2]  # Get image dimensions
@@ -174,6 +178,7 @@ async def process_object_detection(latest_frame):
             label = f"{name} {confidence:.2f}"
             print(f"NAME : {name}")
             buffer_list.append(name)
+            detection_progress = (len(buffer_list) / 25) * 100
             cv2.rectangle(updated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(updated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
@@ -225,7 +230,7 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connection established for object detection")
 
-    global in_sensor, buffer_list, product_name, name_detection, report_generated
+    global in_sensor, buffer_list, product_name, name_detection, report_generated, detection_progress
     report_generated = False
 
     try:
@@ -318,7 +323,8 @@ async def packed_products_expiry(websocket: WebSocket):
                         "product_name" : product_name,
                         "name_detection" : name_detection,
                         "report_generated" : report_generated,
-                        "in_sensor" : in_sensor
+                        "in_sensor" : in_sensor,
+                        "detection_progress" : detection_progress
                     }
                     await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
                 except Exception as e:
@@ -423,9 +429,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/reset-detection")
 def resetDetection():
-    global buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer
+    global buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, detection_progress
 
     buffer_list = []
+    detection_progress = 0
     name_detection = True
     product_name = None
     report_generated = False
@@ -605,6 +612,95 @@ async def uploadDataVideo(file: UploadFile = File(...), class_name: str = Form(.
         content=response_data,
         status_code=200
     )
+
+
+@app.websocket("/ws/camera_feed_gpt")
+async def websocket_camera_feed_packed_products(websocket: WebSocket):
+    
+    await websocket.accept()
+    print("WebSocket connection established for object detection")
+
+    global gpt_response
+    report_generated = False
+    image_send = True
+    try:
+        while True:
+            # Wait for the client to send an image
+            image_data = await websocket.receive_text()
+            header, encoded = image_data.split(',', 1)
+            data = base64.b64decode(encoded)
+
+            frame_queue.clear()
+            frame_queue.append(data)
+            latest_data = frame_queue[0]
+            
+            img_array = np.frombuffer(latest_data, np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            latest_frame = cv2.resize(img, (640, 640))
+            
+
+            if in_sensor:
+                # print("active state")
+                image_send = False
+                updated_frame = latest_frame
+            else:
+                updated_frame = latest_frame
+
+
+            if(not in_sensor) :
+                
+                # print("not in active state")
+
+                if(not image_send) :
+                    gpt_response = process_image(img,"test")
+                    # print("response in server",gpt_response)
+                    image_send = True
+
+
+
+            
+           
+            # Encode the image to base64 to send it back
+            _, buffer = cv2.imencode('.jpg', updated_frame)
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            await websocket.send_text(f"data:image/jpeg;base64,{jpg_as_text}")  # Send the image back
+
+    except WebSocketDisconnect:
+        print("Packed Items WebSocket connection closed.")
+        cv2.destroyAllWindows()  # Close the preview window when the connection is closed
+
+
+@app.websocket("/ws/gpt_response")
+async def packed_products_expiry(websocket: WebSocket):
+    global product_name, name_detection, report_generated
+    await websocket.accept()
+    report_generated = False
+    try:
+        while True:
+            if os.path.exists("data/expiry_details.json"):
+            # Send item updates to the connected client
+                with open("data/expiry_details.json", 'r') as file:
+                    data = json.load(file)
+                try:
+                    data_to_send = {
+                        "msg" : gpt_response
+                    }
+                    await websocket.send_text(json.dumps(data_to_send))  # Convert items to JSON string
+                except Exception as e:
+                    print(f"Error sending message: {e}")
+                    break  # Break the loop if there is an error in sending
+                
+                await asyncio.sleep(1)  
+            else :
+                 with open("data/expiry_details.json", 'w') as file:
+                    data = []
+                    json.dump(data, file, indent=4)
+            
+    except Exception as e:
+        print(f"Packed Item WebSocket error: {e}")
+    # finally:
+    #     await websocket.close()
+
 
 @app.get("/")
 def home():
