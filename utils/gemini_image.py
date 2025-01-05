@@ -110,6 +110,8 @@ def process_image(roi_image,name):
             " start Expiry date: YYYY/MM/DD end"
             " start Manufacture date: YYYY/MM/DD end"
             " start Batch number: xxxxxxxx end"
+            "I WANT ALL DATES IN VERY VERY STRICTLY YYYY/MM/DD "
+            "The expiry date will always follow the manufacture date"
         )
 
         # Generate content using the model
