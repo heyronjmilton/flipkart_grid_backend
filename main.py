@@ -551,6 +551,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         with open(f"data/expiry_details.json", 'r') as file:
             data = json.load(file)
         save_expiry_details_to_excel(data,reports_folder,f"{batch_name}_expiry_details.xlsx")
+        save_expiry_details_to_excel(data,"temp",f"{batch_name}_expiry_details.xlsx")
         clear_list("expiry_details.json")
 
         try:
@@ -573,7 +574,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         OBJECT_NAME = f"{device_id}_{batch_name}_report.xlsx"  
 
         # Call the upload function
-        # upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
 
 
         BUCKET_NAME = "ziplogs-flipkart"
@@ -581,7 +582,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         OBJECT_NAME = f"{device_id}/_{batch_name}.zip"  # Optional, specify custom object name if needed
 
         # Call the upload function
-        # upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
 
         os.remove(FILE_NAME)
 
