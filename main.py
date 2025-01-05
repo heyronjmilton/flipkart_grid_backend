@@ -429,8 +429,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/reset-detection")
 def resetDetection():
-    global buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, detection_progress
+    global buffer_list, name_detection, product_name, report_generated, fruit_veggie_buffer, detection_progress, gpt_response
 
+    gpt_response = []
     buffer_list = []
     detection_progress = 0
     name_detection = True
