@@ -9,6 +9,7 @@ product_dict = {product : 60 for product in class_names_list}
 
 
 def make_object_final(object_name,file_name) : #expiry_details.json(packed products)
+    itemFound = False
     if os.path.exists(f"data/{file_name}"):
         # Read the existing data
         with open(f"data/{file_name}", 'r') as file:
@@ -21,6 +22,7 @@ def make_object_final(object_name,file_name) : #expiry_details.json(packed produ
         
     for index, entry in enumerate(data):
         if entry['object_name'] == object_name:
+            itemFound = True
             new_object_name = object_name +'#'+str(time.time())
             entry['object_name'] = new_object_name
             
@@ -70,7 +72,7 @@ def make_object_final(object_name,file_name) : #expiry_details.json(packed produ
 
     with open(f"data/{file_name}", 'w') as file:
         json.dump(data, file, indent=4)
-
+    return itemFound
 
 def clear_list(file_name):
     if os.path.exists(f"data/{file_name}") :

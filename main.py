@@ -8,11 +8,14 @@ import numpy as np
 import asyncio, json, torch, time, os, subprocess, threading
 from collections import defaultdict, deque, Counter
 import ast
+from datetime import datetime
+import pytz
+
 
 from ultralytics import YOLO
 from ultralytics.utils.plotting import Annotator, colors
 
-from utils.image_process import save_expiry_image
+from utils.image_process import save_expiry_image, append_to_json_file
 from utils.handlelist import make_object_final, clear_list
 from utils.handlereports import save_expiry_details_to_excel, save_fruit_details_to_excel
 from utils.handleuploads import handle_file_upload
@@ -57,6 +60,7 @@ obj_conf = 0.5 #model confidence variables
 expiry_conf = 0.5
 fruit_conf = 0.5
 
+timezone = pytz.timezone('Asia/Kolkata')
 
 process = None          #for the working of the file checker
 process_lock = threading.Lock()
@@ -284,8 +288,41 @@ async def websocket_camera_feed_packed_products(websocket: WebSocket):
 
             if(not in_sensor) :
                 buffer_list = []
+                isProcessed = False
                 if product_name != None :
-                    make_object_final(product_name,"expiry_details.json")
+                    isProcessed = make_object_final(product_name,"expiry_details.json")
+                    if not isProcessed :
+                        print("not in processed list")
+                        current_time = datetime.now(timezone)
+                        iso_timestamp = current_time.isoformat()
+                        
+        
+                        with open(f"data/expiry_details.json", 'r') as file:
+                            try:
+                                data = json.load(file)
+                            except json.JSONDecodeError:
+                                data = []  # If file is empty or has invalid JSON
+
+                        new_entry = {
+                            'timestamp' : iso_timestamp,
+                            'object_name': product_name,
+                            'expiry': "missing",
+                            'mfg': "missing",
+                            'batch_no': "missing",
+                            'expired' : "NULL",
+                            'life' : 0
+                        }
+                        
+                        data.append(new_entry)
+                        print(new_entry)
+                        with open("data/expiry_details.json", 'w') as file:
+                            json.dump(data, file, indent=4)
+
+
+
+                        make_object_final(product_name,"expiry_details.json")
+                            
+                        
                 product_name = None
                 name_detection = True
                 # print("not in active state")
@@ -536,7 +573,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         OBJECT_NAME = f"{device_id}_{batch_name}_report.xlsx"  
 
         # Call the upload function
-        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+        # upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
 
 
         BUCKET_NAME = "ziplogs-flipkart"
@@ -544,7 +581,7 @@ async def finsihTask(batch_name:str, tasktype:str):
         OBJECT_NAME = f"{device_id}/_{batch_name}.zip"  # Optional, specify custom object name if needed
 
         # Call the upload function
-        upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
+        # upload_to_s3(BUCKET_NAME, FILE_NAME, OBJECT_NAME)
 
         os.remove(FILE_NAME)
 
